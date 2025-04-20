@@ -1,0 +1,59 @@
+name: Merge Pull Requests
+
+on:      
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  
+jobs:
+  merge-pr:
+    if: github.event.review.state == 'APPROVED'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Get approval status
+        uses: actions/github-script@v6
+        with:
+          script: |            
+            const pull_number = context.issue.number;
+            if (!pull_number) {
+              throw new Error('Pull request number is not available');
+            }
+            
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number
+            });
+      
+            const approvedReviews = reviews.filter(review => review.state === 'APPROVED');
+            console.log('Approved reviews:', approvedReviews);
+      
+            core.setOutput('approved', approvedReviews.length > 0);
+
+      - name: Create and Checkout Branch
+        if: ${{ steps.get-approval-status.outputs.approved >= steps.get-branch-protection.outputs.required_approvals }}
+        run: |
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git config --global user.name "${{ github.actor }}"
+          
+          git checkout -b temp-branch
+          git fetch origin
+          git checkout ${{ github.head_ref || github.event.pull_request.head.ref }}
+          git pull origin ${{ github.head_ref || github.event.pull_request.head.ref }}
+
+      - name: Merge PR
+        if: ${{ steps.get-approval-status.outputs.approved >= steps.get-branch-protection.outputs.required_approvals }}
+        run: |
+          git merge ${{ github.event.pull_request.base.ref }} -m "Automated merge of #${{ github.event.pull_request.number }}"
+  
+      - name: Push merged changes
+        if: ${{ steps.get-approval-status.outputs.approved >= steps.get-branch-protection.outputs.required_approvals }}
+        run: |
+          git push origin HEAD:${{ github.head_ref || github.event.pull_request.head.ref }}

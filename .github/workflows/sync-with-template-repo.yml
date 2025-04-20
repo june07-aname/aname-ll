@@ -1,0 +1,53 @@
+name: Sync With Template Repo
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    if: github.repository != 'june07-aname/aname-template'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Template Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT }}
+
+      - name: Setup Git
+        run: |
+          # Install git
+          sudo apt-get install git gh
+
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git config --global user.name "${{ github.actor }}"
+
+      - name: Authenticate with GitHub CLI
+        run: echo "${{ secrets.PAT }}" | gh auth login --with-token
+
+      - name: Add Template Repo
+        run: |
+          # Add the template repo as a remote
+          git remote add template https://github.com/june07-aname/aname-template.git
+          git fetch template
+
+      - name: Sync with Template
+        run: |
+          temp_branch_name="sync-temp-$(date +%Y%m%d%H%M%S)"
+          git checkout -b $temp_branch_name
+
+          echo "CNAME merge=ours" > .gitattributes
+          echo "public/n/* merge=ours" >> .gitattributes
+
+          # Merge changes from the template repo
+          git merge template/main --allow-unrelated-histories --strategy-option theirs
+
+          # Commit and push changes
+          git add .
+          git commit -m "Sync with template repository"
+          git push origin $temp_branch_name
+
+          gh pr create --base main --head $temp_branch_name --title "Sync with template repository" --body "This PR synchronizes the repository with the template repository."
+
+          # test comment 7
